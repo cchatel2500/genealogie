@@ -302,15 +302,19 @@ class GeneaExtractorApp:
         selected_item = self.tree.focus()
         if not selected_item:
             return
-        # Récupération de l'index de la ligne ou recherche dans df_global
-        # On peut stocker l'url cachée ou retrouver l'index
-        index_ligne = self.tree.index(selected_item)
-        if hasattr(self, "df_global") and not self.df_global.empty and index_ligne < len(self.df_global):
-            url = self.df_global.iloc[index_ligne].get("_url_arbre", "")
-            if url:
-                webbrowser.open(url)
-            else:
-                messagebox.showinfo("Information", "Aucun lien Geneanet disponible pour cet enregistrement.")
+
+        try:
+            # L'identifiant (selected_item) est maintenant directement l'index d'origine dans df_global
+            row_idx = int(selected_item)
+            if hasattr(self, "df_global") and not self.df_global.empty and row_idx in self.df_global.index:
+                url = self.df_global.loc[row_idx, "_url_arbre"]
+                if url:
+                    webbrowser.open(url)
+                else:
+                    messagebox.showinfo("Information", "Aucun lien Geneanet disponible pour cet enregistrement.")
+        except Exception:
+            messagebox.showinfo("Information", "Impossible d'ouvrir le lien pour cette ligne.")
+
 
     def copier_selection_treeview(self, event=None):
         selected_items = self.tree.selection()
@@ -557,11 +561,13 @@ class GeneaExtractorApp:
         for i in self.tree.get_children():
             self.tree.delete(i)
         col_color = self.combo_col_dept.get()
-        for _, row in df.iterrows():
+
+        # On utilise l'index d'origine (idx) comme identifiant unique (iid) de la ligne dans le Treeview
+        for idx, row in df.iterrows():
             val_dept = row.get(col_color, "")
             dept_tag = f"dept_{val_dept}" if val_dept in self.dept_couleurs else ""
             valeurs_visibles = [row[col] for col in self.colonnes_possibles]
-            self.tree.insert("", "end", values=valeurs_visibles, tags=(dept_tag,))
+            self.tree.insert("", "end", iid=str(idx), values=valeurs_visibles, tags=(dept_tag,))
 
     def trier_colonne(self, col, reverse):
         lignes = []
@@ -643,12 +649,11 @@ class GeneaExtractorApp:
             "l'option 'Détecter les nombres spéciaux' ou l'évaluation des formules est active pour que les liens soient cliquables."
         )
 
-    def exporter_csv(self):
+    def exporter_csv(self):  # (ou exporter_excel selon le nom de votre fonction)
         if self.df_global.empty or not self.repertoire_courant:
             messagebox.showwarning("Attention", "Aucune donnée à exporter.")
             return
 
-        # Vérifie si l'utilisateur a sélectionné des lignes spécifiques
         selected_items = self.tree.selection()
         if selected_items:
             lignes_a_exporter = selected_items
@@ -666,15 +671,14 @@ class GeneaExtractorApp:
             vals_dict = dict(zip(self.colonnes_possibles, self.tree.item(child)["values"]))
             nom_arbre = vals_dict.get("Arbre", "")
 
-            # Recherche de l'URL correspondante dans self.df_global
+            # Récupération directe et ultra-rapide de l'URL via l'index d'origine (child)
             url_trouvee = ""
-            match_lignes = self.df_global[
-                (self.df_global["Nom"] == vals_dict.get("Nom")) &
-                (self.df_global["Prénoms"] == vals_dict.get("Prénoms")) &
-                (self.df_global["Arbre"] == nom_arbre)
-                ]
-            if not match_lignes.empty:
-                url_trouvee = match_lignes.iloc[0].get("_url_arbre", "")
+            try:
+                row_idx = int(child)
+                if row_idx in self.df_global.index:
+                    url_trouvee = self.df_global.loc[row_idx, "_url_arbre"]
+            except Exception:
+                pass
 
             # Formule universelle de tableur : =HYPERLINK("URL", "Nom")
             if url_trouvee and nom_arbre:
@@ -684,18 +688,14 @@ class GeneaExtractorApp:
 
         df_export = pd.DataFrame(lignes_finales, columns=self.colonnes_possibles)
 
-        # Changement d'extension en .xlsx au lieu de .csv
         chemin_excel = os.path.join(self.repertoire_courant, "resultats_geneanet_geopro.xlsx")
 
         try:
             df_export.to_excel(chemin_excel, index=False, engine="openpyxl")
-
             messagebox.showinfo(
                 "Export réussi",
                 f"Export de {type_export} réussi ({len(lignes_finales)} lignes) !\n\n"
-                f"Fichier enregistré sous :\n{chemin_excel}\n\n"
-                "Succès : Ouvrez ce fichier directement dans LibreOffice Calc, "
-                "les liens sur les arbres seront immédiatement cliquables !"
+                f"Fichier enregistré sous :\n{chemin_excel}"
             )
         except Exception as e:
             messagebox.showerror("Erreur d'export", f"Impossible d'exporter au format Excel :\n{e}")
