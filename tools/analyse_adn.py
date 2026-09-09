@@ -14,6 +14,7 @@ class GedcomApp:
         self.create_widgets()
 
     def create_widgets(self):
+
         f_frame = ttk.LabelFrame(self.root, text=" 1. Fichier (GEDCOM ou CSV) ", padding=5)
         f_frame.pack(fill="x", padx=15, pady=5)
         tk.Entry(f_frame, textvariable=self.file_path, width=45).pack(side="left", padx=5, expand=True, fill="x")
@@ -23,7 +24,29 @@ class GedcomApp:
         filter_frame.pack(fill="x", padx=15, pady=5)
         tk.Scale(filter_frame, from_=0, to=50, variable=self.min_age, orient="horizontal").pack(fill="x", padx=5)
 
-        self.p_frame = ttk.LabelFrame(self.root, text=" 3. Racine (GEDCOM uniquement) ", padding=5)
+        # Variables Tkinter à ajouter dans le __init__ ou au début de create_widgets
+        self.vivant_inf = tk.IntVar(value=55)
+        self.vivant_sup = tk.IntVar(value=95)
+
+        # Remplacement du bloc de filtres
+        filter_frame = ttk.LabelFrame(self.root, text=" 3. Filtres Démographiques (Vivants) ", padding=5)
+        filter_frame.pack(fill="x", padx=15, pady=5)
+
+        # Grille interne pour aligner les 3 curseurs
+        f_grid = tk.Frame(filter_frame)
+        f_grid.pack(fill="x", expand=True)
+
+        tk.Label(f_grid, text="Vivants âges mini :", font=("Arial", 8)).grid(row=0, column=2, padx=2, sticky="w")
+        tk.Scale(f_grid, from_=0, to=110, variable=self.vivant_inf, orient="horizontal", length=120).grid(row=0,
+                                                                                                          column=3,
+                                                                                                          padx=5)
+
+        tk.Label(f_grid, text="Vivants âges maxi :", font=("Arial", 8)).grid(row=0, column=4, padx=2, sticky="w")
+        tk.Scale(f_grid, from_=0, to=110, variable=self.vivant_sup, orient="horizontal", length=120).grid(row=0,
+                                                                                                          column=5,
+                                                                                                          padx=5)
+
+        self.p_frame = ttk.LabelFrame(self.root, text=" 4. Racine (GEDCOM uniquement) ", padding=5)
         self.p_frame.pack(fill="x", padx=15, pady=5)
         r_frame = tk.Frame(self.p_frame)
         r_frame.pack(anchor="w")
@@ -110,6 +133,9 @@ class GedcomApp:
 
                     if not target: messagebox.showerror("Erreur", "Racine non trouvée."); return
 
+                    # Extraction du nom de la personne racine pour le titre
+                    target_name = str(target.sub_tag_value('NAME') or 'Inconnu').replace('/', '').strip()
+
                     rel_cm = {
                         'd1': (2613, "Parents"), 'd2': (1754, "Grands-Parents"), 'd3': (887, "Arrière-GP"),
                         'd4': (420, "AAGrand-Parents"), 'fs': (2613, "Frères / Sœurs"), 'ot': (1349, "Oncles / Tantes"),
@@ -117,14 +143,50 @@ class GedcomApp:
                     }
                     data, seen = [], set()
 
+                    import datetime
+                    annee_actuelle = datetime.date.today().year
+
+                    # Récupération des valeurs des curseurs Tkinter
+                    limite_inf = self.vivant_inf.get()
+                    limite_sup = self.vivant_sup.get()
+
                     def add_p(p, k):
                         if not p or p.xref_id in seen or p.xref_id == target.xref_id: return
                         seen.add(p.xref_id)
-                        b, d = self._get_year(p, 'BIRT/DATE'), self._get_year(p, 'DEAT/DATE')
-                        if b and d and (0 <= d - b <= 115):
-                            n = str(p.sub_tag_value('NAME') or 'Inconnu').replace('/', '').strip()
-                            cm, lbl = rel_cm.get(k, (0, ""))
-                            if cm: data.append({"Nom": n, "cM": cm, "Age": d - b, "Relation": lbl})
+
+                        b = self._get_year(p, 'BIRT/DATE')
+                        d = self._get_year(p, 'DEAT/DATE')
+
+                        est_vivant = False  # Indicateur pour la traçabilité
+                        if b:
+                            if d:
+                                age = d - b
+                            else:
+                                age = annee_actuelle - b
+                                # Utilisation des curseurs Tkinter pour filtrer les vivants
+                                if limite_inf <= age <= limite_sup:
+                                    est_vivant = True  # La personne est vivante et validée par les curseurs
+                                else:
+                                    return  # Rejet immédiat si en dehors des curseurs dynamiques
+
+                            # Validation finale et enregistrement (filtre mortalité infantile générale)
+                            if age >= self.min_age.get() and 0 <= age <= 115:
+                                n = str(p.sub_tag_value('NAME') or 'Inconnu').replace('/', '').strip()
+                                g = str(p.sub_tag_value('SEX') or 'Inconnu').upper()
+                                cm, lbl = rel_cm.get(k, (0, ""))
+
+                                # AJOUT DE LA MENTION : Si la personne est vivante, on modifie son étiquette
+                                if est_vivant:
+                                    lbl = f"{lbl} (Vivant)"
+
+                                if cm:
+                                    data.append({
+                                        "Nom": n,
+                                        "cM": cm,
+                                        "Age": age,
+                                        "Relation": lbl,
+                                        "Genre": g
+                                    })
 
                     famc = target.sub_tag('FAMC', follow=True)
                     if famc:
@@ -175,21 +237,44 @@ class GedcomApp:
             plt.scatter(df_f.loc[m, "cM"] + jitter[m], df_f.loc[m, "Age"], alpha=0.8, edgecolors='black', s=80,
                         label=cat, color=colors(idx))
 
-        plt.axhline(df_f["Age"].mean(), color='red', linestyle='--', label=f'Moyenne ({df_f["Age"].mean():.1f} ans)')
-        st = df_f.groupby("cM")["Age"].mean().sort_index()
-        plt.plot(st.index, st.values, color='black', marker='x', linestyle=':', label='Tendance')
+        # --- Séparation des données par Genre ---
+        df_h = df_f[df_f["Genre"] == "M"]
+        df_f_femmes = df_f[df_f["Genre"] == "F"]
+
+        # 1. Tracé des moyennes horizontales globales par genre
+        if not df_h.empty:
+            plt.axhline(df_h["Age"].mean(), color='blue', linestyle='--', alpha=0.7,
+                        label=f'Moyenne Hommes ({df_h["Age"].mean():.1f} ans)')
+        if not df_f_femmes.empty:
+            plt.axhline(df_f_femmes["Age"].mean(), color='magenta', linestyle='--', alpha=0.7,
+                        label=f'Moyenne Femmes ({df_f_femmes["Age"].mean():.1f} ans)')
+
+        # 2. Tracé des deux lignes de tendance (les "cornes")
+        if not df_h.empty:
+            st_h = df_h.groupby("cM")["Age"].mean().sort_index()
+            plt.plot(st_h.index, st_h.values, color='royalblue', marker='o', linestyle='-',
+                     linewidth=2, label='Tendance Hommes')
+        if not df_f_femmes.empty:
+            st_f = df_f_femmes.groupby("cM")["Age"].mean().sort_index()
+            plt.plot(st_f.index, st_f.values, color='darkviolet', marker='o', linestyle='-',
+                     linewidth=2, label='Tendance Femmes')
 
         # Modifie le titre de la barre de la fenêtre Windows/Mac
         plt.gcf().canvas.manager.set_window_title("Longévité Familiale et Distance Génétique")
 
         plt.gca().invert_xaxis()
         plt.title(f"Durée de vie et Proximité ADN (Seuil : {self.min_age.get()} ans)")
+        plt.title(
+            f"Durée de vie et Proximité ADN - Racine : {target_name}\n(Mortalité < {self.min_age.get()} ans exclue)",
+            fontweight='bold', pad=15)
+
         plt.xlabel("ADN (cM)")
         plt.ylabel("Âge au décès")
         ticks = sorted(list(df_f["cM"].unique()), reverse=True)
         plt.xticks(ticks, [f"{int(t)} cM" for t in ticks], rotation=45)
         plt.grid(True, linestyle=':', alpha=0.5)
         # plt.legend(loc='lower left', fontsize=9);
+
         # Positionne la légende à l'extérieur droit, centrée verticalement
         plt.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=9, borderaxespad=0)
         plt.tight_layout()
