@@ -27,10 +27,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install ged4py pandas matplotlib numpy pyinstaller
 
-    # Compilation du premier script (à la racine avec recherche automatique de la date)
+    # Compilation du premier script à la racine en cherchant dynamiquement son nom exact
     - name: Compilation du Script Principal (Racine)
+      shell: powershell
       run: |
-        pyinstaller --onefile --noconsole *AnalyseGeneanetResult.py
+        $script = Get-ChildItem -Filter "*AnalyseGeneanetResult.py" | Select-Object -First 1 -ExpandProperty Name
+        Write-Output "Fichier détecté : $script"
+        pyinstaller --onefile --noconsole $script
 
     # Compilation du deuxième script (situé dans le dossier tools)
     - name: Compilation du Script Secondaire (Dossier tools)
@@ -43,6 +46,5 @@ jobs:
       with:
         name: Executables-Analyse-Genealogie
         path: |
-          dist/*AnalyseGeneanetResult.exe
-          dist/analyse_adn.exe
+          dist/*.exe
         if-no-files-found: error
