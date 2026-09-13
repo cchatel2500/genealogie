@@ -1,0 +1,48 @@
+name: Compilation Automatique Windows (Double .EXE)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Récupération du code source
+      uses: actions/checkout@v4
+
+    # Configuration de l'environnement Python
+    - name: Configuration de Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    # Installation de vos dépendances de généalogie et de data science
+    - name: Installation des dépendances
+      run: |
+        python -m pip install --upgrade pip
+        pip install ged4py pandas matplotlib numpy pyinstaller
+
+    # Compilation du premier script (à la racine avec recherche automatique de la date)
+    - name: Compilation du Script Principal (Racine)
+      run: |
+        pyinstaller --onefile --noconsole *AnalyseGeneanetResult.py
+
+    # Compilation du deuxième script (situé dans le dossier tools)
+    - name: Compilation du Script Secondaire (Dossier tools)
+      run: |
+        pyinstaller --onefile --noconsole tools/analyse_adn.py
+
+    # Sauvegarde des deux exécutables générés dans un seul dossier de téléchargement (Artefact)
+    - name: Sauvegarde des deux exécutables (Artefact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: Executables-Analyse-Genealogie
+        path: |
+          dist/*AnalyseGeneanetResult.exe
+          dist/analyse_adn.exe
+        if-no-files-found: error
