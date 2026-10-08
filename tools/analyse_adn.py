@@ -403,7 +403,7 @@ class GedcomApp:
                          label='Tendance Femmes')
 
             plt.gca().invert_xaxis()
-            plt.title(f"Durée de vie en fonction de la proximité ADN (Seuil : {self.min_age.get()} ans)",
+            plt.title(f"Durée de vie en fonction de la proximité ADN (Seuil : {self.min_age.get()} ans - Racine : {target_name})",
                       fontweight='bold', pad=15)
             plt.xlabel("ADN théorique (cM)")
             plt.ylabel("Âge au décès")
@@ -434,7 +434,7 @@ class GedcomApp:
 
         # --- OPTION 3 : RÉPARTITION DES ÂGES AU DÉCÈS PAR GROUPE ---
         elif graph_type == "repartition":
-            plt.gcf().canvas.manager.set_window_title("Analyse des Seuils de Décès par Branche")
+            plt.gcf().canvas.manager.set_window_title("Analyse des Seuils de Décès par Branche ")
             jitter_y = np.random.uniform(-0.15, 0.15, size=len(df_f))
             for i, cat in enumerate(cats):
                 m = (df_f["Relation"] == cat)
