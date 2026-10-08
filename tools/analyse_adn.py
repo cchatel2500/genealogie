@@ -403,8 +403,10 @@ class GedcomApp:
                          label='Tendance Femmes')
 
             plt.gca().invert_xaxis()
-            plt.title(f"Durée de vie en fonction de la proximité ADN (Seuil : {self.min_age.get()} ans - Racine : {target_name})",
-                      fontweight='bold', pad=15)
+            # plt.title(f"Durée de vie en fonction de la proximité ADN (Seuil : {self.min_age.get()} ans - Racine : {target_name})",
+            #           fontweight='bold', pad=15)
+            plt.title(f"Durée de vie en fonction de la proximité ADN - Racine : {target_name}\n(Seuil : {self.min_age.get()} ans)", fontweight='bold', pad=15)
+
             plt.xlabel("ADN théorique (cM)")
             plt.ylabel("Âge au décès")
             ticks = sorted(list(df_f["cM"].unique()), reverse=True)
@@ -548,6 +550,22 @@ class GedcomApp:
 
         # Connexion de la fonction au mouvement global de la souris sur le graphique
         plt.gcf().canvas.mpl_connect("motion_notify_event", hover)
+
+        # --- CALCUL ET AFFICHAGE DE L'ÉCHANTILLON (HOMMES / FEMMES) ---
+        # On compte le nombre d'individus de chaque genre dans le tableau filtré
+        nb_hommes = len(df_f[df_f["Genre"] == "M"])
+        nb_femmes = len(df_f[df_f["Genre"] == "F"])
+        text_echantillon = f" (Échantillon d'étude : {nb_hommes} ♂ | {nb_femmes} ♀)"
+
+        # On applique dynamiquement ce texte sur l'axe X selon le graphique actif
+        if graph_type == "adn":
+            plt.xlabel("ADN théorique (cM)" + text_echantillon, fontsize=10)
+        elif graph_type == "temps":
+            plt.xlabel("Année de naissance" + text_echantillon, fontsize=10)
+        elif graph_type == "repartition":
+            plt.xlabel("Âge au décès (années)" + text_echantillon, fontsize=10)
+        # ---------------------------------------------------------------
+
 
         plt.grid(True, linestyle=':', alpha=0.5)
         plt.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), fontsize=9, borderaxespad=0)
