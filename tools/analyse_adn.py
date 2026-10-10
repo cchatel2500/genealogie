@@ -140,6 +140,10 @@ class GedcomApp:
         # Bouton Exporter CSV à droite (Expansé et identique à votre version d'origine)
         self.btn_export = tk.Button(ctrl_frame, text="Exporter CSV", bg="#2ECC71", fg="white",
                                     font=("Arial", 10, "bold"), height=2, state="disabled", command=self.export_data)
+
+        tk.Button(g_frame, text="Exporter Rapport HTML Interactif", bg="#E67E22", fg="white", font=("Arial", 9, "bold"),
+                  command=lambda: self.run_analysis("html")).pack(side="left", fill="x", expand=True, padx=2)
+
         self.btn_export.pack(side="right", fill="x", expand=True, padx=5)
 
         # Force l'interface à s'ajuster si un fichier par défaut a été chargé via le .ini
@@ -274,7 +278,8 @@ class GedcomApp:
 
                     rel_cm = {
                         'd1': (2613, "Parents"), 'd2': (1754, "Grands-Parents"), 'd3': (875, "Arrière-GP"),
-                        'd4': (420, "AAGrand-Parents"), 'fs': (2613, "Frères / Sœurs"), 'ot': (1349, "Oncles / Tantes"),
+                        'd4': (420, "AAGrand-Parents"),'d5': (210, "3AGrand-Parents"),
+                        'fs': (2613, "Frères / Sœurs"), 'ot': (1349, "Oncles / Tantes"),
                         'got': (680, "Grands-Oncles"), 'cg': (875, "Cousins")
                     }
                     data, seen = [], set()
@@ -353,7 +358,16 @@ class GedcomApp:
                                             famc4 = p3.sub_tag('FAMC', follow=True)
                                             if famc4:
                                                 for p4 in [famc4.sub_tag('HUSB', follow=True),
-                                                           famc4.sub_tag('WIFE', follow=True)]: add_p(p4, 'd4')
+                                                           famc4.sub_tag('WIFE', follow=True)]:
+                                                    if not p4: continue
+                                                    add_p(p4, 'd4')
+                                                    # Exploration de la 5e génération (210 cM)
+                                                    famc5 = p4.sub_tag('FAMC', follow=True)
+                                                    if famc5:
+                                                        for p5 in [famc5.sub_tag('HUSB', follow=True),
+                                                                   famc5.sub_tag('WIFE', follow=True)]:
+                                                            add_p(p5, 'd5')
+
                 self.df_results = pd.DataFrame(data)
             except Exception as e:
                 messagebox.showerror("Erreur", str(e)); return
@@ -448,6 +462,109 @@ class GedcomApp:
                       fontweight='bold', pad=15)
             plt.xlabel("Âge au décès (années)");
             plt.ylabel("Groupes de parenté")
+
+        # --- OPTION 4 : EXPORTATION DU RAPPORT HTML INTERACTIF DYNAMIQUE ---
+        elif graph_type == "html":
+            try:
+                import plotly.express as px
+                from tkinter import filedialog
+
+                f_save = filedialog.asksaveasfilename(
+                    title="Enregistrer le rapport interactif",
+                    defaultextension=".html",
+                    filetypes=[("Fichier HTML", "*.html")]
+                )
+
+                if f_save:
+                    # 1. ANALYSE DE LA SÉLECTION POUR ADAPTER LES AXES
+                    selection = self.graph_selector.get()
+
+                    if selection == "Chronologique (Années de naissance)":
+                        x_axis, y_axis = "Naissance", "Age"
+                        titre_graphe = f"Évolution de la longévité selon l'année de naissance - Racine : {target_name}"
+                        reverse_x = False
+                    elif selection == "Répartition des âges au décès":
+                        x_axis, y_axis = "Age", "Relation"
+                        titre_graphe = f"Distribution des âges au décès par groupe de parenté - Racine : {target_name}"
+                        reverse_x = False
+                    else:  # Par défaut : Proximité ADN (cM)
+                        x_axis, y_axis = "cM", "Age"
+                        titre_graphe = f"Longévité Familiale et Distance Génétique - Racine : {target_name}"
+                        reverse_x = True  # On inverse l'axe ADN comme sur Matplotlib
+
+                    # 2. CRÉATION DU GRAPHIQUE INTERACTIF ADAPTÉ
+                    fig = px.scatter(
+                        df_f,
+                        x=x_axis,
+                        y=y_axis,
+                        color="Relation",
+                        symbol="Genre",
+                        hover_name="Nom",
+                        hover_data={"cM": True, "Age": True, "Genre": True, "Relation": True, "Naissance": True},
+                        title=titre_graphe
+                    )
+                    # 2. CRÉATION DU GRAPHIQUE INTERACTIF ADAPTÉ
+                    fig = px.scatter(
+                        df_f,
+                        x=x_axis,
+                        y=y_axis,
+                        color="Relation",
+                        symbol="Genre",
+                        hover_name="Nom",
+                        hover_data={"cM": True, "Age": True, "Genre": True, "Relation": True, "Naissance": True},
+                        title=titre_graphe
+                    )
+
+                    # =====================================================================
+                    # AJOUT DES 4 LIGNES STATISTIQUES (UNIQUEMENT POUR LE GRAPHE ADN)
+                    # =====================================================================
+                    if selection == "Proximité ADN (cM)" or x_axis == "cM":
+                        df_h = df_f[df_f["Genre"] == "M"]
+                        df_fem = df_f[df_f["Genre"] == "F"]
+
+                        # --- 1. Moyenne et Tendance HOMMES (Bleu) ---
+                        if not df_h.empty:
+                            # Ligne horizontale de moyenne globale Hommes
+                            moy_h = df_h["Age"].mean()
+                            fig.add_shape(type="line", x0=df_f["cM"].min(), x1=df_f["cM"].max(), y0=moy_h, y1=moy_h,
+                                          line=dict(color="royalblue", width=1.5, dash="dash"),
+                                          name=f"Moy. Hommes ({moy_h:.1f} ans)")
+
+                            # Courbe de tendance brisée Hommes
+                            st_h = df_h.groupby("cM")["Age"].mean().sort_index()
+                            fig.add_scatter(x=st_h.index, y=st_h.values, mode="lines+markers",
+                                            line=dict(color="royalblue", width=2), name="Tendance Hommes",
+                                            showlegend=True)
+
+                        # --- 2. Moyenne et Tendance FEMMES (Violet) ---
+                        if not df_fem.empty:
+                            # Ligne horizontale de moyenne globale Femmes
+                            moy_fem = df_fem["Age"].mean()
+                            fig.add_shape(type="line", x0=df_f["cM"].min(), x1=df_f["cM"].max(), y0=moy_fem, y1=moy_fem,
+                                          line=dict(color="darkviolet", width=1.5, dash="dash"),
+                                          name=f"Moy. Femmes ({moy_fem:.1f} ans)")
+
+                            # Courbe de tendance brisée Femmes
+                            st_fem = df_fem.groupby("cM")["Age"].mean().sort_index()
+                            fig.add_scatter(x=st_fem.index, y=st_fem.values, mode="lines+markers",
+                                            line=dict(color="darkviolet", width=2), name="Tendance Femmes",
+                                            showlegend=True)
+                    # =====================================================================
+
+                    # Application de l'inversion d'axe uniquement pour le graphe ADN
+                    if reverse_x:
+                        fig.update_xaxes(autorange="reversed")
+
+                    # Application de l'inversion d'axe uniquement pour le graphe ADN
+                    if reverse_x:
+                        fig.update_xaxes(autorange="reversed")
+
+                    # 3. ENREGISTREMENT DU FICHIER HTML AUTONOME
+                    fig.write_html(f_save)
+                    messagebox.showinfo("Succès", f"Rapport HTML '{selection}' généré avec succès !")
+            except Exception as e:
+                messagebox.showerror("Erreur HTML", f"Impossible de générer le rapport :\n{e}")
+            return
 
         # Mise en forme globale de la fenêtre de graphique
         plt.grid(True, linestyle=':', alpha=0.5)
